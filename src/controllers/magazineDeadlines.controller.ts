@@ -94,12 +94,50 @@ export const revertConfirmation = async (req: AuthRequest, res: Response) => {
       return;
     }
 
+    // Get the confirmation to find the associated magazine edition
+    const [confirmations] = await pool.query<RowDataPacket[]>(
+      `SELECT mdc.*, ca.magazine_edition_id
+       FROM magazine_deadline_confirmations mdc
+       JOIN campaign_actions ca ON mdc.campaign_action_id = ca.id
+       WHERE mdc.id = ?`,
+      [confirmationId]
+    );
+
+    if (confirmations.length === 0) {
+      res.status(404).json({ error: 'Confirmación no encontrada' });
+      return;
+    }
+
+    const confirmation = confirmations[0];
+    const magazineEditionId = confirmation.magazine_edition_id;
+
+    // If there's no magazine edition, just revert the confirmation
+    if (!magazineEditionId) {
+      await pool.query(
+        `UPDATE magazine_deadline_confirmations 
+         SET reverted = TRUE, reverted_at = NOW(), reverted_by = ?
+         WHERE id = ?`,
+        [userId, confirmationId]
+      );
+      res.json({ message: 'Confirmación revertida correctamente' });
+      return;
+    }
+
     // Update confirmation as reverted
     await pool.query(
       `UPDATE magazine_deadline_confirmations 
        SET reverted = TRUE, reverted_at = NOW(), reverted_by = ?
        WHERE id = ?`,
       [userId, confirmationId]
+    );
+
+    // If the magazine edition is completed, uncomplete it
+    // This allows the admin to revert a published edition
+    await pool.query(
+      `UPDATE magazine_editions 
+       SET is_completed = FALSE, publication_link = NULL
+       WHERE id = ? AND is_completed = TRUE`,
+      [magazineEditionId]
     );
 
     res.json({ message: 'Confirmación revertida correctamente' });

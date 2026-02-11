@@ -619,3 +619,56 @@ export const updateActionStatus = async (req: AuthRequest, res: Response) => {
     res.status(500).json({ message: 'Error al actualizar el estado de la acción' });
   }
 };
+
+// Move action to another magazine edition
+export const moveActionToEdition = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const { target_edition_id } = req.body;
+
+  try {
+    // Verify action exists and has magazine edition assigned
+    const [actions] = await pool.query<RowDataPacket[]>(
+      'SELECT * FROM campaign_actions WHERE id = ?',
+      [id]
+    );
+
+    if (actions.length === 0) {
+      res.status(404).json({ message: 'Acción no encontrada' });
+      return;
+    }
+
+    const action = actions[0];
+
+    if (!action.magazine_edition_id) {
+      res.status(400).json({ message: 'Esta acción no está asignada a ninguna revista' });
+      return;
+    }
+
+    // Verify target edition exists and is not completed
+    const [targetEdition] = await pool.query<RowDataPacket[]>(
+      'SELECT id, is_completed FROM magazine_editions WHERE id = ?',
+      [target_edition_id]
+    );
+
+    if (targetEdition.length === 0) {
+      res.status(404).json({ message: 'Edición de destino no encontrada' });
+      return;
+    }
+
+    if (targetEdition[0].is_completed) {
+      res.status(400).json({ message: 'No se puede mover contenido a una edición completada' });
+      return;
+    }
+
+    // Update magazine_edition_id in campaign_actions
+    await pool.query(
+      'UPDATE campaign_actions SET magazine_edition_id = ? WHERE id = ?',
+      [target_edition_id, id]
+    );
+
+    res.json({ message: 'Acción movida exitosamente', action_id: id, new_edition_id: target_edition_id });
+  } catch (error) {
+    console.error('Error moving action to edition:', error);
+    res.status(500).json({ message: 'Error al mover la acción a otra edición' });
+  }
+};

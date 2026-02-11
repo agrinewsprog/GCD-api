@@ -7,6 +7,7 @@ import {
   deleteCampaign,
   assignActions,
   updateActionStatus,
+  moveActionToEdition,
   validateCampaign,
   validateCampaignId,
   validateAssignActions,
@@ -65,6 +66,13 @@ router.patch(
   roleMiddleware('admin', 'post-venta'),
   validateActionStatus,
   updateActionStatus
+);
+
+// Move action to another magazine edition (admin and comercial can move)
+router.put(
+  '/actions/:id/move',
+  roleMiddleware('admin', 'comercial'),
+  moveActionToEdition
 );
 
 export default router;
