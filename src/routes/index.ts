@@ -10,6 +10,7 @@ import installmentsRoutes from './installments.routes';
 import newsletterRoutes from './newsletter.routes';
 import magazineRoutes from './magazine.routes';
 import magazineDeadlinesRoutes from './magazineDeadlines.routes';
+import usersRoutes from './users.routes';
 
 const router = Router();
 
@@ -30,5 +31,6 @@ router.use('/installments', installmentsRoutes);
 router.use('/newsletters', newsletterRoutes);
 router.use('/magazines', magazineRoutes);
 router.use('/magazine-deadlines', magazineDeadlinesRoutes);
+router.use('/users', usersRoutes);
 
 export default router;
