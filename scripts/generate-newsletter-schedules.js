@@ -4,15 +4,18 @@
 // Ejecutar: node scripts/generate-newsletter-schedules.js [año]
 // Ejemplo: node scripts/generate-newsletter-schedules.js 2026
 
+require('dotenv').config();
 const mysql = require("mysql2/promise");
 
 const DB_CONFIG = {
-  host: "localhost",
-  port: 3307,
-  user: "root",
-  password: "root123",
-  database: "gcd_db",
+  host: process.env.DB_HOST || "localhost",
+  port: parseInt(process.env.DB_PORT || "3307"),
+  user: process.env.DB_USER || "root",
+  password: process.env.DB_PASSWORD || "root123",
+  database: process.env.DB_NAME || "gcd_db",
 };
+
+console.log(`🔌 Connecting to database: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
 
 const DAYS_MAP = {
   Sunday: 0,
@@ -214,6 +217,13 @@ async function generateNewsletterSchedules(year) {
     }
   } catch (error) {
     console.error("❌ Error:", error.message);
+    console.error("Stack trace:", error.stack);
+    if (error.code) {
+      console.error("Error code:", error.code);
+    }
+    if (error.sqlMessage) {
+      console.error("SQL Error:", error.sqlMessage);
+    }
     process.exit(1);
   } finally {
     if (connection) {
