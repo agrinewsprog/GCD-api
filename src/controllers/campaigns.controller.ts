@@ -46,10 +46,11 @@ export const validateAssignActions = [
       return value.every((item: any) =>
         item.medium_id && item.channel_id && item.action_id &&
         (!item.start_date || typeof item.start_date === 'string') &&
-        (!item.end_date || typeof item.end_date === 'string')
+        (!item.end_date || typeof item.end_date === 'string') &&
+        (!item.quantity || (typeof item.quantity === 'number' && item.quantity >= 1))
       );
     })
-    .withMessage('Each action must have medium_id, channel_id, action_id, and optional start_date and end_date'),
+    .withMessage('Each action must have medium_id, channel_id, action_id, optional start_date, end_date, and quantity (min 1)'),
 ];
 
 export const validateActionStatus = [
@@ -512,6 +513,7 @@ export const assignActions = async (req: AuthRequest, res: Response) => {
         const endDate = a.end_date ? a.end_date.split('T')[0] : null;
         const newsletterScheduleId = a.newsletter_schedule_id || null;
         const magazineEditionId = a.magazine_edition_id || null;
+        const quantity = a.quantity || 1; // Default to 1 if not provided
         
         console.log('Action dates:', {
           original_start: a.start_date,
@@ -519,7 +521,8 @@ export const assignActions = async (req: AuthRequest, res: Response) => {
           converted_start: startDate,
           converted_end: endDate,
           newsletter_schedule_id: newsletterScheduleId,
-          magazine_edition_id: magazineEditionId
+          magazine_edition_id: magazineEditionId,
+          quantity: quantity
         });
         
         return [
@@ -527,6 +530,7 @@ export const assignActions = async (req: AuthRequest, res: Response) => {
           a.medium_id,
           a.channel_id,
           a.action_id,
+          quantity,
           startDate,
           endDate,
           newsletterScheduleId,
@@ -537,7 +541,7 @@ export const assignActions = async (req: AuthRequest, res: Response) => {
 
       await pool.query(
         `INSERT INTO campaign_actions 
-         (campaign_id, medium_id, channel_id, action_id, start_date, end_date, newsletter_schedule_id, magazine_edition_id, status) 
+         (campaign_id, medium_id, channel_id, action_id, quantity, start_date, end_date, newsletter_schedule_id, magazine_edition_id, status) 
          VALUES ?`,
         [actionValues]
       );
