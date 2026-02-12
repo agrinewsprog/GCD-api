@@ -298,16 +298,16 @@ export const regenerateSchedules = async (req: Request, res: Response) => {
     const path = require('path');
     const scriptPath = path.join(__dirname, '../../scripts/generate-newsletter-schedules.js');
 
-    exec(`node "${scriptPath}" ${year}`, (error: any, stdout: any, _stderr: any) => {
+    exec(`node "${scriptPath}" ${year}`, (error: any, stdout: any, stderr: any) => {
       if (error) {
         console.error('Error executing script:', error);
+        console.error('stderr:', stderr);
         res.status(500).json({ error: 'Error al regenerar schedules' });
         return;
       }
-      console.log(stdout);
+      console.log('Script output:', stdout);
+      res.json({ message: `Schedules regenerados para el año ${year}`, output: stdout });
     });
-
-    res.json({ message: `Schedules regenerados para el año ${year}` });
   } catch (error) {
     console.error('Error regenerating schedules:', error);
     res.status(500).json({ error: 'Error al regenerar schedules' });
