@@ -4,7 +4,7 @@
 // Ejecutar: node scripts/generate-newsletter-schedules.js [año]
 // Ejemplo: node scripts/generate-newsletter-schedules.js 2026
 
-require('dotenv').config();
+require("dotenv").config();
 const mysql = require("mysql2/promise");
 
 const DB_CONFIG = {
@@ -15,7 +15,9 @@ const DB_CONFIG = {
   database: process.env.DB_NAME || "gcd_db",
 };
 
-console.log(`🔌 Connecting to database: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`);
+console.log(
+  `🔌 Connecting to database: ${DB_CONFIG.user}@${DB_CONFIG.host}:${DB_CONFIG.port}/${DB_CONFIG.database}`,
+);
 
 const DAYS_MAP = {
   Sunday: 0,

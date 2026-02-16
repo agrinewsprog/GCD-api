@@ -138,6 +138,7 @@ CREATE TABLE campaigns (
     
     -- Billing information
     contract_file VARCHAR(255),
+    contract_link VARCHAR(500),
     total_amount DECIMAL(10, 2),
     number_of_installments INT,
     currency VARCHAR(10) DEFAULT 'EUR',

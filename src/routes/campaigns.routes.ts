@@ -60,10 +60,10 @@ router.post(
   assignActions
 );
 
-// Update campaign action status (admin and post-venta can update status)
+// Update campaign action status (admin only)
 router.patch(
   '/actions/:id',
-  roleMiddleware('admin', 'post-venta'),
+  roleMiddleware('admin'),
   validateActionStatus,
   updateActionStatus
 );

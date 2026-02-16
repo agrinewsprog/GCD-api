@@ -11,6 +11,7 @@ import newsletterRoutes from './newsletter.routes';
 import magazineRoutes from './magazine.routes';
 import magazineDeadlinesRoutes from './magazineDeadlines.routes';
 import usersRoutes from './users.routes';
+import workflowRoutes from './workflow.routes';
 
 const router = Router();
 
@@ -32,5 +33,6 @@ router.use('/newsletters', newsletterRoutes);
 router.use('/magazines', magazineRoutes);
 router.use('/magazine-deadlines', magazineDeadlinesRoutes);
 router.use('/users', usersRoutes);
+router.use('/workflow', workflowRoutes);
 
 export default router;

@@ -212,6 +212,7 @@ export const createCampaign = async (req: AuthRequest, res: Response) => {
       company_id,
       contact_id,
       medium_ids,
+      contract_link,
       total_amount,
       number_of_installments,
       currency,
@@ -247,11 +248,11 @@ export const createCampaign = async (req: AuthRequest, res: Response) => {
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO campaigns (
         name, description, company_id, contact_id,
-        total_amount, number_of_installments, currency, billing_zone,
+        contract_link, total_amount, number_of_installments, currency, billing_zone,
         comments, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [name, description || null, company_id, contact_id,
-       total_amount || null, number_of_installments || null,
+       contract_link || null, total_amount || null, number_of_installments || null,
        currency || 'EUR', billing_zone || null, comments || null, userId]
     );
 
@@ -294,6 +295,7 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
       company_id,
       contact_id,
       medium_ids,
+      contract_link,
       total_amount,
       number_of_installments,
       currency,
@@ -372,6 +374,10 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
     if (contact_id !== undefined) {
       updateFields.push('contact_id = ?');
       values.push(contact_id);
+    }
+    if (contract_link !== undefined) {
+      updateFields.push('contract_link = ?');
+      values.push(contract_link);
     }
     if (total_amount !== undefined) {
       updateFields.push('total_amount = ?');
@@ -502,48 +508,72 @@ export const assignActions = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Delete existing actions
-    await pool.query('DELETE FROM campaign_actions WHERE campaign_id = ?', [id]);
+    // --- Incremental diff: preserve workflow data of existing actions ---
 
-    // Insert new actions
+    // 1. Fetch existing actions
+    const [existingActions] = await pool.query<RowDataPacket[]>(
+      `SELECT id, medium_id, channel_id, action_id, quantity, start_date, end_date,
+              newsletter_schedule_id, magazine_edition_id, status,
+              workflow_state, deadline_date, content_type, design_responsible, notes
+       FROM campaign_actions WHERE campaign_id = ?`,
+      [id]
+    );
+
+    // Build a key for matching: (medium_id, channel_id, action_id, newsletter_schedule_id, magazine_edition_id)
+    const makeKey = (a: any) =>
+      `${a.medium_id}-${a.channel_id}-${a.action_id}-${a.newsletter_schedule_id || 'null'}-${a.magazine_edition_id || 'null'}`;
+
+    const existingMap = new Map<string, any>();
+    for (const ea of existingActions) {
+      existingMap.set(makeKey(ea), ea);
+    }
+
+    const incomingKeys = new Set<string>();
+
     if (actions && actions.length > 0) {
-      const actionValues = actions.map((a: any) => {
-        // Convert ISO date strings to MySQL DATE format (YYYY-MM-DD)
+      for (const a of actions) {
         const startDate = a.start_date ? a.start_date.split('T')[0] : null;
         const endDate = a.end_date ? a.end_date.split('T')[0] : null;
         const newsletterScheduleId = a.newsletter_schedule_id || null;
         const magazineEditionId = a.magazine_edition_id || null;
-        const quantity = a.quantity || 1; // Default to 1 if not provided
-        
-        console.log('Action dates:', {
-          original_start: a.start_date,
-          original_end: a.end_date,
-          converted_start: startDate,
-          converted_end: endDate,
-          newsletter_schedule_id: newsletterScheduleId,
-          magazine_edition_id: magazineEditionId,
-          quantity: quantity
-        });
-        
-        return [
-          id,
-          a.medium_id,
-          a.channel_id,
-          a.action_id,
-          quantity,
-          startDate,
-          endDate,
-          newsletterScheduleId,
-          magazineEditionId,
-          'pending'
-        ];
-      });
+        const quantity = a.quantity || 1;
 
+        const key = `${a.medium_id}-${a.channel_id}-${a.action_id}-${newsletterScheduleId || 'null'}-${magazineEditionId || 'null'}`;
+        incomingKeys.add(key);
+
+        const existing = existingMap.get(key);
+
+        if (existing) {
+          // 2a. Action already exists → update only scheduling fields, preserve workflow data
+          await pool.query(
+            `UPDATE campaign_actions
+             SET quantity = ?, start_date = ?, end_date = ?,
+                 newsletter_schedule_id = ?, magazine_edition_id = ?
+             WHERE id = ?`,
+            [quantity, startDate, endDate, newsletterScheduleId, magazineEditionId, existing.id]
+          );
+        } else {
+          // 2b. New action → insert
+          await pool.query(
+            `INSERT INTO campaign_actions
+             (campaign_id, medium_id, channel_id, action_id, quantity, start_date, end_date,
+              newsletter_schedule_id, magazine_edition_id, status)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+            [id, a.medium_id, a.channel_id, a.action_id, quantity, startDate, endDate, newsletterScheduleId, magazineEditionId]
+          );
+        }
+      }
+    }
+
+    // 3. Delete actions that were removed by the user
+    const idsToDelete = existingActions
+      .filter((ea: any) => !incomingKeys.has(makeKey(ea)))
+      .map((ea: any) => ea.id);
+
+    if (idsToDelete.length > 0) {
       await pool.query(
-        `INSERT INTO campaign_actions 
-         (campaign_id, medium_id, channel_id, action_id, quantity, start_date, end_date, newsletter_schedule_id, magazine_edition_id, status) 
-         VALUES ?`,
-        [actionValues]
+        `DELETE FROM campaign_actions WHERE id IN (?)`,
+        [idsToDelete]
       );
     }
 

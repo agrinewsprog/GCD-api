@@ -4,8 +4,13 @@ import * as usersController from '../controllers/users.controller';
 
 const router = Router();
 
-// All routes require authentication and admin role
+// Routes that require only authentication (any role)
 router.use(authMiddleware);
+
+// Get mediums assigned to the logged-in user (any authenticated user)
+router.get('/my-mediums', usersController.getMyMediums as any);
+
+// All remaining routes require admin role
 router.use(roleMiddleware('admin'));
 
 // Get all users

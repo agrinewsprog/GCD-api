@@ -97,6 +97,7 @@ export interface Campaign {
   company_id: number;
   contact_id: number;
   contract_file?: string;
+  contract_link?: string;
   total_amount?: number;
   number_of_installments?: number;
   currency?: 'EUR' | 'USD' | 'BRL';
@@ -142,6 +143,13 @@ export interface CampaignAction {
   end_date?: string;
   status: 'pending' | 'in_progress' | 'completed' | 'cancelled';
   notes?: string;
+  content_type?: 'banner' | 'articulo_tecnico';
+  workflow_state?: 'por_recibir' | 'enviado_diseno' | 'en_edicion' | 'cambios';
+  deadline_date?: string;
+  design_responsible?: 'propio' | 'cliente';
+  newsletter_link?: string;
+  rrss_publication_date?: string;
+  rrss_link?: string;
   created_at: Date;
   updated_at: Date;
 }
