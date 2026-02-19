@@ -17,13 +17,43 @@ export const companyValidation = [
 ];
 
 // Get all companies
-export const getAllCompanies = async (_req: AuthRequest, res: Response): Promise<void> => {
+export const getAllCompanies = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const [companies] = await pool.query<(Company & RowDataPacket)[]>(
-      'SELECT * FROM companies ORDER BY name ASC'
-    );
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 25;
+    const search = (req.query.search as string) || '';
+    const offset = (page - 1) * limit;
 
-    res.json(companies);
+    let query = 'SELECT * FROM companies';
+    let countQuery = 'SELECT COUNT(*) as total FROM companies';
+    const params: any[] = [];
+    const countParams: any[] = [];
+
+    if (search) {
+      const searchCondition = ` WHERE name LIKE ? OR billing_city LIKE ? OR billing_country LIKE ? OR tax_number LIKE ?`;
+      query += searchCondition;
+      countQuery += searchCondition;
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam, searchParam);
+      countParams.push(searchParam, searchParam, searchParam, searchParam);
+    }
+
+    query += ' ORDER BY name ASC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const [companies] = await pool.query<(Company & RowDataPacket)[]>(query, params);
+    const [countResult] = await pool.query<RowDataPacket[]>(countQuery, countParams);
+    const total = countResult[0].total;
+
+    res.json({
+      companies,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error('Get companies error:', error);
     res.status(500).json({ error: 'Internal server error' });

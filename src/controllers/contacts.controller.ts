@@ -16,25 +16,61 @@ export const contactValidation = [
 // Get all contacts
 export const getAllContacts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    const { company_id } = req.query;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 25;
+    const search = (req.query.search as string) || '';
+    const company_id = req.query.company_id as string;
+    const offset = (page - 1) * limit;
 
     let query = `
       SELECT c.*, co.name as company_name 
       FROM contacts c
       INNER JOIN companies co ON c.company_id = co.id
     `;
+    let countQuery = `
+      SELECT COUNT(*) as total 
+      FROM contacts c
+      INNER JOIN companies co ON c.company_id = co.id
+    `;
     const params: any[] = [];
+    const countParams: any[] = [];
+    const conditions: string[] = [];
 
-    if (company_id) {
-      query += ' WHERE c.company_id = ?';
-      params.push(company_id);
+    if (search) {
+      conditions.push(`(c.name LIKE ? OR c.surname LIKE ? OR c.email LIKE ? OR c.phone LIKE ? OR co.name LIKE ?)`);
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam, searchParam, searchParam);
+      countParams.push(searchParam, searchParam, searchParam, searchParam, searchParam);
     }
 
-    query += ' ORDER BY c.name ASC';
+    if (company_id) {
+      conditions.push('c.company_id = ?');
+      params.push(company_id);
+      countParams.push(company_id);
+    }
+
+    if (conditions.length > 0) {
+      const whereClause = ' WHERE ' + conditions.join(' AND ');
+      query += whereClause;
+      countQuery += whereClause;
+    }
+
+    query += ' ORDER BY c.name ASC LIMIT ? OFFSET ?';
+    params.push(limit, offset);
 
     const [contacts] = await pool.query<RowDataPacket[]>(query, params);
+    const [countResult] = await pool.query<RowDataPacket[]>(countQuery, countParams);
+    const total = countResult[0].total;
 
-    res.json(contacts);
+    res.json({
+      contacts,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error('Get contacts error:', error);
     res.status(500).json({ error: 'Internal server error' });

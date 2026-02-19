@@ -8,10 +8,14 @@ import {
   assignActions,
   updateActionStatus,
   moveActionToEdition,
+  assignContacts,
+  removeContact,
   validateCampaign,
   validateCampaignId,
   validateAssignActions,
   validateActionStatus,
+  validateAssignContacts,
+  validateRemoveContact,
 } from '../controllers/campaigns.controller';
 import { authMiddleware, roleMiddleware } from '../middleware/auth';
 
@@ -73,6 +77,22 @@ router.put(
   '/actions/:id/move',
   roleMiddleware('admin', 'comercial'),
   moveActionToEdition
+);
+
+// Assign contacts to campaign (admin and comercial own can assign)
+router.post(
+  '/:id/contacts',
+  roleMiddleware('admin', 'comercial'),
+  validateAssignContacts,
+  assignContacts
+);
+
+// Remove contact from campaign (admin and comercial own can remove)
+router.delete(
+  '/:id/contacts/:contactId',
+  roleMiddleware('admin', 'comercial'),
+  validateRemoveContact,
+  removeContact
 );
 
 export default router;

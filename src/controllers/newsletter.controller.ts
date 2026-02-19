@@ -5,7 +5,12 @@ import { RowDataPacket } from 'mysql2';
 // Get newsletter types with filters
 export const getNewsletterTypes = async (req: Request, res: Response) => {
   try {
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 25;
+    const search = (req.query.search as string) || '';
+    const day_of_week = req.query.day_of_week as string;
     const { medium_id, region } = req.query;
+    const offset = (page - 1) * limit;
 
     let query = `
       SELECT 
@@ -16,7 +21,15 @@ export const getNewsletterTypes = async (req: Request, res: Response) => {
       WHERE nt.is_active = TRUE
     `;
 
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM newsletter_types nt
+      JOIN mediums m ON nt.medium_id = m.id
+      WHERE nt.is_active = TRUE
+    `;
+
     const params: any[] = [];
+    const countParams: any[] = [];
 
     // If medium_id is provided, find newsletters by the medium's region
     if (medium_id) {
@@ -30,17 +43,57 @@ export const getNewsletterTypes = async (req: Request, res: Response) => {
         WHERE nt.is_active = TRUE
         AND user_medium.id = ?
       `;
+      countQuery = `
+        SELECT COUNT(*) as total
+        FROM newsletter_types nt
+        JOIN mediums m ON nt.medium_id = m.id
+        JOIN mediums user_medium ON user_medium.region = nt.region
+        WHERE nt.is_active = TRUE
+        AND user_medium.id = ?
+      `;
       params.push(medium_id);
+      countParams.push(medium_id);
     } else if (region) {
       // If only region is provided (backward compatibility)
       query += ' AND nt.region = ?';
+      countQuery += ' AND nt.region = ?';
       params.push(region);
+      countParams.push(region);
     }
 
-    query += ' ORDER BY m.name, nt.region, nt.week_of_month, nt.name';
+    // Search filter
+    if (search) {
+      query += ' AND (nt.name LIKE ? OR m.name LIKE ? OR nt.region LIKE ?)';
+      countQuery += ' AND (nt.name LIKE ? OR m.name LIKE ? OR nt.region LIKE ?)';
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam);
+      countParams.push(searchParam, searchParam, searchParam);
+    }
+
+    // Day of week filter
+    if (day_of_week) {
+      query += ' AND nt.day_of_week = ?';
+      countQuery += ' AND nt.day_of_week = ?';
+      params.push(day_of_week);
+      countParams.push(day_of_week);
+    }
+
+    query += ' ORDER BY m.name, nt.region, nt.week_of_month, nt.name LIMIT ? OFFSET ?';
+    params.push(limit, offset);
 
     const [types] = await pool.query<RowDataPacket[]>(query, params);
-    res.json(types);
+    const [countResult] = await pool.query<RowDataPacket[]>(countQuery, countParams);
+    const total = countResult[0].total;
+
+    res.json({
+      types,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error('Error fetching newsletter types:', error);
     res.status(500).json({ error: 'Error al obtener tipos de newsletter' });
@@ -179,17 +232,66 @@ export const markScheduleAsAvailable = async (scheduleId: number) => {
 // ============================================
 
 // Get all newsletter types (including inactive, for admin)
-export const getAllNewsletterTypes = async (_req: Request, res: Response) => {
+export const getAllNewsletterTypes = async (req: Request, res: Response) => {
   try {
-    const [types] = await pool.query<RowDataPacket[]>(
-      `SELECT 
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 25;
+    const search = (req.query.search as string) || '';
+    const day_of_week = req.query.day_of_week as string;
+    const offset = (page - 1) * limit;
+
+    let query = `
+      SELECT 
         nt.*,
         m.name as medium_name
       FROM newsletter_types nt
       JOIN mediums m ON nt.medium_id = m.id
-      ORDER BY m.name, nt.region, nt.name`
-    );
-    res.json(types);
+      WHERE 1=1
+    `;
+
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM newsletter_types nt
+      JOIN mediums m ON nt.medium_id = m.id
+      WHERE 1=1
+    `;
+
+    const params: any[] = [];
+    const countParams: any[] = [];
+
+    // Search filter
+    if (search) {
+      query += ' AND (nt.name LIKE ? OR m.name LIKE ? OR nt.region LIKE ?)';
+      countQuery += ' AND (nt.name LIKE ? OR m.name LIKE ? OR nt.region LIKE ?)';
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam);
+      countParams.push(searchParam, searchParam, searchParam);
+    }
+
+    // Day of week filter
+    if (day_of_week) {
+      query += ' AND nt.day_of_week = ?';
+      countQuery += ' AND nt.day_of_week = ?';
+      params.push(day_of_week);
+      countParams.push(day_of_week);
+    }
+
+    query += ' ORDER BY m.name, nt.region, nt.name LIMIT ? OFFSET ?';
+    params.push(limit, offset);
+
+    const [types] = await pool.query<RowDataPacket[]>(query, params);
+    const [countResult] = await pool.query<RowDataPacket[]>(countQuery, countParams);
+    const total = countResult[0].total;
+
+    res.json({
+      types,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    });
   } catch (error) {
     console.error('Error fetching all newsletter types:', error);
     res.status(500).json({ error: 'Error al obtener tipos de newsletter' });

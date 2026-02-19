@@ -15,9 +15,14 @@ export const validateCampaign = [
   body('company_id')
     .isInt({ min: 1 })
     .withMessage('Valid company_id is required'),
-  body('contact_id')
+  body('contact_ids')
+    .optional()
+    .isArray()
+    .withMessage('contact_ids must be an array'),
+  body('contact_ids.*')
+    .optional()
     .isInt({ min: 1 })
-    .withMessage('Valid contact_id is required'),
+    .withMessage('Each contact_id must be a valid integer'),
   body('medium_ids')
     .optional()
     .isArray()
@@ -51,6 +56,21 @@ export const validateAssignActions = [
       );
     })
     .withMessage('Each action must have medium_id, channel_id, action_id, optional start_date, end_date, and quantity (min 1)'),
+];
+
+export const validateAssignContacts = [
+  param('id').isInt({ min: 1 }).withMessage('Invalid campaign ID'),
+  body('contact_ids')
+    .isArray({ min: 1 })
+    .withMessage('contact_ids must be a non-empty array'),
+  body('contact_ids.*')
+    .isInt({ min: 1 })
+    .withMessage('Each contact_id must be a valid integer'),
+];
+
+export const validateRemoveContact = [
+  param('id').isInt({ min: 1 }).withMessage('Invalid campaign ID'),
+  param('contactId').isInt({ min: 1 }).withMessage('Invalid contact ID'),
 ];
 
 export const validateActionStatus = [
@@ -109,12 +129,9 @@ export const getCampaignById = async (req: AuthRequest, res: Response) => {
       `SELECT 
         c.*,
         comp.name as company_name,
-        cont.name as contact_name,
-        cont.surname as contact_surname,
         u.name as created_by_name
       FROM campaigns c
       LEFT JOIN companies comp ON c.company_id = comp.id
-      LEFT JOIN contacts cont ON c.contact_id = cont.id
       LEFT JOIN users u ON c.created_by = u.id
       WHERE c.id = ?`,
       [id]
@@ -134,6 +151,16 @@ export const getCampaignById = async (req: AuthRequest, res: Response) => {
         return;
       }
     }
+
+    // Get contacts
+    const [contacts] = await pool.query<RowDataPacket[]>(
+      `SELECT cc.*, c.name, c.surname, c.email, c.phone
+       FROM campaign_contacts cc
+       JOIN contacts c ON cc.contact_id = c.id
+       WHERE cc.campaign_id = ?
+       ORDER BY cc.is_primary DESC, cc.id ASC`,
+      [id]
+    );
 
     // Get mediums
     const [mediums] = await pool.query<RowDataPacket[]>(
@@ -188,6 +215,7 @@ export const getCampaignById = async (req: AuthRequest, res: Response) => {
 
     res.json({
       ...campaign,
+      contacts,
       mediums,
       actions: formattedActions
     });
@@ -210,7 +238,7 @@ export const createCampaign = async (req: AuthRequest, res: Response) => {
       name,
       description,
       company_id,
-      contact_id,
+      contact_ids,
       medium_ids,
       contract_link,
       total_amount,
@@ -233,30 +261,43 @@ export const createCampaign = async (req: AuthRequest, res: Response) => {
       return;
     }
 
-    // Validate contact exists and belongs to company
-    const [contacts] = await pool.query<RowDataPacket[]>(
-      'SELECT id FROM contacts WHERE id = ? AND company_id = ?',
-      [contact_id, company_id]
-    );
+    // Validate contacts exist and belong to company
+    if (contact_ids && Array.isArray(contact_ids) && contact_ids.length > 0) {
+      const [contacts] = await pool.query<RowDataPacket[]>(
+        'SELECT id FROM contacts WHERE id IN (?) AND company_id = ?',
+        [contact_ids, company_id]
+      );
 
-    if (contacts.length === 0) {
-      res.status(400).json({ message: 'Contacto no encontrado o no pertenece a la empresa' });
-      return;
+      if (contacts.length !== contact_ids.length) {
+        res.status(400).json({ message: 'Uno o más contactos no encontrados o no pertenecen a la empresa' });
+        return;
+      }
     }
 
-    // Create campaign
+    // Create campaign (without contact_id, it's deprecated)
     const [result] = await pool.query<ResultSetHeader>(
       `INSERT INTO campaigns (
-        name, description, company_id, contact_id,
+        name, description, company_id,
         contract_link, total_amount, number_of_installments, currency, billing_zone,
         comments, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [name, description || null, company_id, contact_id,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [name, description || null, company_id,
        contract_link || null, total_amount || null, number_of_installments || null,
        currency || 'EUR', billing_zone || null, comments || null, userId]
     );
 
     const campaignId = result.insertId;
+
+    // Insert contacts if provided
+    if (contact_ids && Array.isArray(contact_ids) && contact_ids.length > 0) {
+      const contactValues = contact_ids.map((cid: number, index: number) => 
+        [campaignId, cid, index === 0 ? 1 : 0] // First contact is primary
+      );
+      await pool.query(
+        'INSERT INTO campaign_contacts (campaign_id, contact_id, is_primary) VALUES ?',
+        [contactValues]
+      );
+    }
 
     // Insert mediums if provided
     if (medium_ids && Array.isArray(medium_ids) && medium_ids.length > 0) {
@@ -293,7 +334,7 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
       name,
       description,
       company_id,
-      contact_id,
+      contact_ids,
       medium_ids,
       contract_link,
       total_amount,
@@ -341,16 +382,16 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Validate new contact if provided
-    if (contact_id) {
+    // Validate contacts if provided
+    if (contact_ids !== undefined && Array.isArray(contact_ids) && contact_ids.length > 0) {
       const contactCompanyId = company_id || campaign.company_id;
       const [contacts] = await pool.query<RowDataPacket[]>(
-        'SELECT id FROM contacts WHERE id = ? AND company_id = ?',
-        [contact_id, contactCompanyId]
+        'SELECT id FROM contacts WHERE id IN (?) AND company_id = ?',
+        [contact_ids, contactCompanyId]
       );
 
-      if (contacts.length === 0) {
-        res.status(400).json({ message: 'Contacto no encontrado o no pertenece a la empresa' });
+      if (contacts.length !== contact_ids.length) {
+        res.status(400).json({ message: 'Uno o más contactos no encontrados o no pertenecen a la empresa' });
         return;
       }
     }
@@ -370,10 +411,6 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
     if (company_id !== undefined) {
       updateFields.push('company_id = ?');
       values.push(company_id);
-    }
-    if (contact_id !== undefined) {
-      updateFields.push('contact_id = ?');
-      values.push(contact_id);
     }
     if (contract_link !== undefined) {
       updateFields.push('contract_link = ?');
@@ -423,6 +460,23 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
         await pool.query(
           'INSERT INTO campaign_mediums (campaign_id, medium_id) VALUES ?',
           [mediumValues]
+        );
+      }
+    }
+
+    // Update contacts if provided
+    if (contact_ids !== undefined && Array.isArray(contact_ids)) {
+      // Delete existing contacts
+      await pool.query('DELETE FROM campaign_contacts WHERE campaign_id = ?', [id]);
+      
+      // Insert new contacts
+      if (contact_ids.length > 0) {
+        const contactValues = contact_ids.map((cid: number, index: number) => 
+          [id, cid, index === 0 ? 1 : 0] // First contact is primary
+        );
+        await pool.query(
+          'INSERT INTO campaign_contacts (campaign_id, contact_id, is_primary) VALUES ?',
+          [contactValues]
         );
       }
     }
@@ -704,5 +758,107 @@ export const moveActionToEdition = async (req: AuthRequest, res: Response): Prom
   } catch (error) {
     console.error('Error moving action to edition:', error);
     res.status(500).json({ message: 'Error al mover la acción a otra edición' });
+  }
+};
+
+// Assign contacts to campaign
+export const assignContacts = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id } = req.params;
+  const { contact_ids } = req.body;
+
+  try {
+    // Verify campaign exists
+    const [campaigns] = await pool.query<RowDataPacket[]>(
+      'SELECT id, company_id FROM campaigns WHERE id = ?',
+      [id]
+    );
+
+    if (campaigns.length === 0) {
+      res.status(404).json({ message: 'Campaña no encontrada' });
+      return;
+    }
+
+    const campaign = campaigns[0];
+
+    if (!contact_ids || !Array.isArray(contact_ids) || contact_ids.length === 0) {
+      res.status(400).json({ message: 'Debe proporcionar al menos un contacto' });
+      return;
+    }
+
+    // Validate all contacts exist and belong to the campaign's company
+    const [contacts] = await pool.query<RowDataPacket[]>(
+      'SELECT id FROM contacts WHERE id IN (?) AND company_id = ?',
+      [contact_ids, campaign.company_id]
+    );
+
+    if (contacts.length !== contact_ids.length) {
+      res.status(400).json({ message: 'Uno o más contactos no encontrados o no pertenecen a la empresa de la campaña' });
+      return;
+    }
+
+    // Delete existing contacts for this campaign
+    await pool.query(
+      'DELETE FROM campaign_contacts WHERE campaign_id = ?',
+      [id]
+    );
+
+    // Insert new contacts (first one is primary)
+    const contactValues = contact_ids.map((cid: number, index: number) => 
+      [id, cid, index === 0 ? 1 : 0]
+    );
+    await pool.query(
+      'INSERT INTO campaign_contacts (campaign_id, contact_id, is_primary) VALUES ?',
+      [contactValues]
+    );
+
+    res.json({ message: 'Contactos asignados exitosamente' });
+  } catch (error) {
+    console.error('Error assigning contacts:', error);
+    res.status(500).json({ message: 'Error al asignar contactos' });
+  }
+};
+
+// Remove a contact from campaign
+export const removeContact = async (req: AuthRequest, res: Response): Promise<void> => {
+  const { id, contactId } = req.params;
+
+  try {
+    // Verify campaign exists
+    const [campaigns] = await pool.query<RowDataPacket[]>(
+      'SELECT id FROM campaigns WHERE id = ?',
+      [id]
+    );
+
+    if (campaigns.length === 0) {
+      res.status(404).json({ message: 'Campaña no encontrada' });
+      return;
+    }
+
+    // Check how many contacts are assigned to this campaign
+    const [contactsCount] = await pool.query<RowDataPacket[]>(
+      'SELECT COUNT(*) as count FROM campaign_contacts WHERE campaign_id = ?',
+      [id]
+    );
+
+    if (contactsCount[0].count <= 1) {
+      res.status(400).json({ message: 'No se puede eliminar el último contacto de la campaña' });
+      return;
+    }
+
+    // Delete the contact from campaign
+    const [result] = await pool.query<ResultSetHeader>(
+      'DELETE FROM campaign_contacts WHERE campaign_id = ? AND contact_id = ?',
+      [id, contactId]
+    );
+
+    if (result.affectedRows === 0) {
+      res.status(404).json({ message: 'Contacto no encontrado en esta campaña' });
+      return;
+    }
+
+    res.json({ message: 'Contacto eliminado exitosamente' });
+  } catch (error) {
+    console.error('Error removing contact:', error);
+    res.status(500).json({ message: 'Error al eliminar contacto' });
   }
 };
