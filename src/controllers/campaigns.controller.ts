@@ -3,6 +3,7 @@ import { body, param, validationResult } from 'express-validator';
 import pool from '../config/database';
 import { AuthRequest } from '../types';
 import { RowDataPacket, ResultSetHeader } from 'mysql2';
+import { generateInstallmentsForCampaign } from './installments.controller';
 
 // Validation rules
 export const validateCampaign = [
@@ -313,7 +314,19 @@ export const createCampaign = async (req: AuthRequest, res: Response) => {
       [campaignId]
     );
 
-    res.status(201).json(newCampaign[0]);
+    // Auto-generate installments if total_amount and number_of_installments are provided
+    let installments = null;
+    if (total_amount && number_of_installments && number_of_installments > 0) {
+      const baseDate = new Date(newCampaign[0].created_at || new Date());
+      installments = await generateInstallmentsForCampaign(
+        campaignId,
+        parseFloat(total_amount),
+        parseInt(number_of_installments),
+        baseDate
+      );
+    }
+
+    res.status(201).json({ ...newCampaign[0], installments });
   } catch (error: any) {
     console.error('Error creating campaign:', error);
     res.status(500).json({ message: 'Error al crear la campaña' });
@@ -486,7 +499,33 @@ export const updateCampaign = async (req: AuthRequest, res: Response) => {
       [id]
     );
 
-    res.json(updated[0]);
+    // Re-generate installments if total_amount or number_of_installments changed
+    const updatedCampaign = updated[0];
+    const amountChanged = total_amount !== undefined && parseFloat(total_amount) !== parseFloat(campaign.total_amount);
+    const installmentsChanged = number_of_installments !== undefined && parseInt(number_of_installments) !== parseInt(campaign.number_of_installments);
+
+    let installments = null;
+    if ((amountChanged || installmentsChanged) && updatedCampaign.total_amount && updatedCampaign.number_of_installments > 0) {
+      // Only regenerate installments that haven't been paid yet
+      const [paidInstallments] = await pool.query<RowDataPacket[]>(
+        "SELECT COUNT(*) as count FROM campaign_installments WHERE campaign_id = ? AND status = 'paid'",
+        [id]
+      );
+
+      const hasPaidInstallments = paidInstallments[0].count > 0;
+
+      if (!hasPaidInstallments) {
+        const baseDate = new Date(updatedCampaign.created_at || new Date());
+        installments = await generateInstallmentsForCampaign(
+          parseInt(id),
+          parseFloat(updatedCampaign.total_amount),
+          parseInt(updatedCampaign.number_of_installments),
+          baseDate
+        );
+      }
+    }
+
+    res.json({ ...updatedCampaign, installments });
   } catch (error) {
     console.error('Error updating campaign:', error);
     res.status(500).json({ message: 'Error al actualizar la campaña' });

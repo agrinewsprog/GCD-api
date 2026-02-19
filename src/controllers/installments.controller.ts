@@ -256,7 +256,60 @@ export const deleteInstallment = async (req: AuthRequest, res: Response): Promis
   }
 };
 
-// Auto-generate installments for a campaign
+/**
+ * Core logic to generate installments for a campaign.
+ * Handles remainder cents correctly: the last installment absorbs the rounding difference.
+ * Uses the campaign's created_at date as the base for monthly due dates.
+ * Returns the generated installments array.
+ */
+export const generateInstallmentsForCampaign = async (
+  campaignId: number,
+  totalAmount: number,
+  numberOfInstallments: number,
+  baseDate: Date
+): Promise<RowDataPacket[]> => {
+  // Delete existing installments for this campaign
+  await pool.query('DELETE FROM campaign_installments WHERE campaign_id = ?', [campaignId]);
+
+  // Calculate base amount per installment (truncated to 2 decimals)
+  const baseAmount = Math.floor((totalAmount / numberOfInstallments) * 100) / 100;
+  // The last installment gets the remainder so the sum is exact
+  const lastAmount = Math.round((totalAmount - baseAmount * (numberOfInstallments - 1)) * 100) / 100;
+
+  const installmentValues: any[][] = [];
+  for (let i = 1; i <= numberOfInstallments; i++) {
+    const dueDate = new Date(baseDate);
+    dueDate.setMonth(dueDate.getMonth() + i);
+    const amount = i === numberOfInstallments ? lastAmount : baseAmount;
+
+    installmentValues.push([
+      campaignId,
+      i,
+      amount,
+      dueDate.toISOString().split('T')[0],
+      'pending'
+    ]);
+  }
+
+  // Bulk insert all installments at once
+  if (installmentValues.length > 0) {
+    await pool.query(
+      `INSERT INTO campaign_installments 
+       (campaign_id, installment_number, amount, due_date, status) 
+       VALUES ?`,
+      [installmentValues]
+    );
+  }
+
+  const [newInstallments] = await pool.query<RowDataPacket[]>(
+    'SELECT * FROM campaign_installments WHERE campaign_id = ? ORDER BY installment_number ASC',
+    [campaignId]
+  );
+
+  return newInstallments;
+};
+
+// Auto-generate installments for a campaign (HTTP endpoint)
 export const generateInstallments = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const { campaignId } = req.params;
@@ -289,27 +342,12 @@ export const generateInstallments = async (req: AuthRequest, res: Response): Pro
       return;
     }
 
-    // Delete existing installments
-    await pool.query('DELETE FROM campaign_installments WHERE campaign_id = ?', [campaignId]);
-
-    const installmentAmount = campaign.total_amount / campaign.number_of_installments;
-    const baseDate = new Date();
-    
-    for (let i = 1; i <= campaign.number_of_installments; i++) {
-      const dueDate = new Date(baseDate);
-      dueDate.setMonth(dueDate.getMonth() + i);
-
-      await pool.query(
-        `INSERT INTO campaign_installments 
-         (campaign_id, installment_number, amount, due_date, status) 
-         VALUES (?, ?, ?, ?, 'pending')`,
-        [campaignId, i, installmentAmount.toFixed(2), dueDate.toISOString().split('T')[0]]
-      );
-    }
-
-    const [newInstallments] = await pool.query<RowDataPacket[]>(
-      'SELECT * FROM campaign_installments WHERE campaign_id = ? ORDER BY installment_number ASC',
-      [campaignId]
+    const baseDate = new Date(campaign.created_at || new Date());
+    const newInstallments = await generateInstallmentsForCampaign(
+      parseInt(campaignId),
+      parseFloat(campaign.total_amount),
+      parseInt(campaign.number_of_installments),
+      baseDate
     );
 
     res.status(201).json(newInstallments);

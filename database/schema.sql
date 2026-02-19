@@ -7,8 +7,11 @@
 DROP TABLE IF EXISTS notifications;
 DROP TABLE IF EXISTS campaign_actions;
 DROP TABLE IF EXISTS campaigns;
+DROP TABLE IF EXISTS channel_actions;
+DROP TABLE IF EXISTS medium_channels;
 DROP TABLE IF EXISTS actions;
 DROP TABLE IF EXISTS channels;
+DROP TABLE IF EXISTS user_mediums;
 DROP TABLE IF EXISTS mediums;
 DROP TABLE IF EXISTS contacts;
 DROP TABLE IF EXISTS companies;
@@ -47,8 +50,25 @@ CREATE TABLE user_roles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- COMPANIES AND CONTACTS
+-- MEDIUMS (must be before user_mediums)
 -- ============================================
+
+CREATE TABLE mediums (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE user_mediums (
+    user_id INT NOT NULL,
+    medium_id INT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, medium_id),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (medium_id) REFERENCES mediums(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE companies (
     id INT AUTO_INCREMENT PRIMARY KEY,
@@ -79,16 +99,8 @@ CREATE TABLE contacts (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ============================================
--- MEDIUMS, CHANNELS AND ACTIONS (Many-to-Many)
+-- CHANNELS AND ACTIONS (Many-to-Many)
 -- ============================================
-
-CREATE TABLE mediums (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_name (name)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE channels (
     id INT AUTO_INCREMENT PRIMARY KEY,
