@@ -122,10 +122,12 @@ export const getNewsletterSchedules = async (req: Request, res: Response) => {
         ns.updated_at,
         nt.name as newsletter_name,
         nt.region,
-        m.name as medium_name
+        m.name as medium_name,
+        COUNT(ca.id) as action_count
       FROM newsletter_schedules ns
       JOIN newsletter_types nt ON ns.newsletter_type_id = nt.id
       JOIN mediums m ON nt.medium_id = m.id
+      LEFT JOIN campaign_actions ca ON ca.newsletter_schedule_id = ns.id
       WHERE ns.newsletter_type_id = ?
     `;
 
@@ -142,7 +144,7 @@ export const getNewsletterSchedules = async (req: Request, res: Response) => {
       query += ' AND ns.scheduled_date >= CURDATE()';
     }
 
-    query += ' ORDER BY ns.scheduled_date';
+    query += ' GROUP BY ns.id ORDER BY ns.scheduled_date';
 
     const [schedules] = await pool.query<RowDataPacket[]>(query, params);
     res.json(schedules);

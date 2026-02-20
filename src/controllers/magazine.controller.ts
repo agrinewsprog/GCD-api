@@ -28,10 +28,13 @@ const calculateFirstMonday = (year: number, month: number): string => {
 export const getAllMagazineEditions = async (_req: Request, res: Response) => {
   try {
     const [editions] = await pool.query<RowDataPacket[]>(
-      `SELECT me.*, m.name as medium_name
+      `SELECT me.*, m.name as medium_name,
+              COUNT(ca.id) as action_count
        FROM magazine_editions me
        JOIN mediums m ON me.medium_id = m.id
-       ORDER BY me.publication_date DESC`
+       LEFT JOIN campaign_actions ca ON ca.magazine_edition_id = me.id
+       GROUP BY me.id
+       ORDER BY me.publication_date ASC`
     );
     res.json(editions);
   } catch (error) {
@@ -71,11 +74,14 @@ export const getEditionsByMedium = async (req: Request, res: Response) => {
     const { mediumId } = req.params;
     
     const [editions] = await pool.query<RowDataPacket[]>(
-      `SELECT me.*, m.name as medium_name
+      `SELECT me.*, m.name as medium_name,
+              COUNT(ca.id) as action_count
        FROM magazine_editions me
        JOIN mediums m ON me.medium_id = m.id
+       LEFT JOIN campaign_actions ca ON ca.magazine_edition_id = me.id
        WHERE me.medium_id = ?
-       ORDER BY me.publication_date DESC`,
+       GROUP BY me.id
+       ORDER BY me.publication_date ASC`,
       [mediumId]
     );
 
@@ -89,11 +95,15 @@ export const getEditionsByMedium = async (req: Request, res: Response) => {
 // Create new magazine edition
 export const createMagazineEdition = async (req: Request, res: Response) => {
   try {
-    const { medium_id, year, month, publication_date } = req.body;
+    const { medium_id, name, year, month, publication_date } = req.body;
 
     // Validate required fields
     if (!medium_id) {
       res.status(400).json({ error: 'El medio es requerido' });
+      return;
+    }
+    if (!name || !name.trim()) {
+      res.status(400).json({ error: 'El nombre de la edición es requerido' });
       return;
     }
 
@@ -121,8 +131,8 @@ export const createMagazineEdition = async (req: Request, res: Response) => {
     }
 
     const [result] = await pool.query<ResultSetHeader>(
-      'INSERT INTO magazine_editions (medium_id, publication_date, status) VALUES (?, ?, ?)',
-      [medium_id, finalPublicationDate, 'draft']
+      'INSERT INTO magazine_editions (medium_id, name, publication_date, status) VALUES (?, ?, ?, ?)',
+      [medium_id, name.trim(), finalPublicationDate, 'draft']
     );
 
     res.status(201).json({
@@ -140,10 +150,15 @@ export const createMagazineEdition = async (req: Request, res: Response) => {
 export const updateMagazineEdition = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { publication_date, status } = req.body;
+    const { name, publication_date, status } = req.body;
 
     const updates: string[] = [];
     const values: any[] = [];
+
+    if (name !== undefined && name.trim()) {
+      updates.push('name = ?');
+      values.push(name.trim());
+    }
 
     if (publication_date) {
       updates.push('publication_date = ?');
